@@ -1,6 +1,12 @@
 // Copyright 2023 QMK
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include QMK_KEYBOARD_H
+#include <math.h>
+#include <transactions.h>
+
+typedef struct _master_to_slave_t {
+    bool is_recording;
+} master_to_slave_t;
 
 enum sofle_layers {
     /* _M_XYZ = Mac Os, _W_XYZ = Win/Linux */
@@ -35,7 +41,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
   KC_GRAVE,   KC_1,   KC_2,    KC_3,    KC_4,    KC_5,                     KC_6,    KC_7,    KC_8,    KC_9,    KC_0,  KC_GRAVE,
   KC_TAB,   KC_Q,   KC_W,    KC_E,    KC_R,    KC_T,                     KC_Y,    KC_U,    KC_I,    KC_O,    KC_P,  KC_BSPC,
   KC_LSFT,   KC_A,   KC_S,    KC_D,    KC_F,    KC_G,                     KC_H,    KC_J,    KC_K,    KC_L, KC_SCLN,  KC_QUOT,
-  KC_LCTL,  KC_Z,   KC_X,    KC_C,    KC_V,    KC_B, KC_MPLY,     KC_CAPS,KC_N,    KC_M, KC_COMM,  KC_DOT, KC_SLSH,  KC_RSFT,
+  KC_LCTL,  KC_Z,   KC_X,    KC_C,    KC_V,    KC_B, KC_MPLY,     CW_TOGG,KC_N,    KC_M, KC_COMM,  KC_DOT, KC_SLSH,  KC_RSFT,
                  XXXXXXX,KC_LALT,KC_LGUI,TL_LOWR, KC_SPC,      KC_ENT,  TL_UPPR, KC_RGUI, KC_RALT, KC_RCTL
 ),
 /*
@@ -58,7 +64,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
   KC_GRAVE,   KC_1,   KC_2,    KC_3,    KC_4,    KC_5,                      KC_6,    KC_7,    KC_8,    KC_9,    KC_0,  KC_GRAVE,
   KC_TAB,   KC_Q,   KC_W,    KC_F,    KC_P,    KC_B,                      KC_J,    KC_L,    KC_U,    KC_Y, KC_SCLN,  KC_BSPC,
   KC_LSFT,   KC_A,   KC_R,    KC_S,    KC_T,    KC_G,                      KC_M,    KC_N,    KC_E,    KC_I,    KC_O,  KC_QUOT,
-  KC_LCTL,  KC_Z,   KC_X,    KC_C,    KC_D,    KC_V, KC_MPLY,      KC_CAPS,KC_K,    KC_H, KC_COMM,  KC_DOT, KC_SLSH,  KC_RSFT,
+  KC_LCTL,  KC_Z,   KC_X,    KC_C,    KC_D,    KC_V, KC_MPLY,      CW_TOGG,KC_K,    KC_H, KC_COMM,  KC_DOT, KC_SLSH,  KC_RSFT,
                  XXXXXXX,KC_LALT,KC_LGUI,TL_LOWR, KC_SPC,        KC_ENT,  TL_UPPR, KC_RGUI, KC_RALT, KC_RCTL
 ),
 /* LOWER
@@ -193,6 +199,8 @@ static const char PROGMEM cat_animations[4][3][4][33] = {
 
 static uint8_t animation_frame = 0;
 static uint8_t animation_type = 0;
+bool is_recording = false;
+bool is_recording_lights_on = false;
 
 void render_pet(void) {
     for (uint8_t i = 0; i < 4; i++) {
@@ -254,8 +262,7 @@ static void print_status_narrow(void) {
             oled_write_ln_P(PSTR("Undef"), false);
     }
     oled_write_P(PSTR("\n\n"), false);
-    led_t led_usb_state = host_keyboard_led_state();
-    oled_write_ln_P(PSTR("CPSLK"), led_usb_state.caps_lock);
+    oled_write_ln_P(PSTR("CPSWD"), is_caps_word_on());
 }
 
 bool oled_task_user(void) {
@@ -294,4 +301,69 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
         }
     }
     return false;
+}
+
+void set_underglow(int8_t r, int8_t g, int8_t b) {
+    for (uint8_t i = 29; i <= 34; i++) {
+        rgb_matrix_set_color(i, r, g, b);
+    }
+
+    for (uint8_t i = 65; i <= 70; i++) {
+        rgb_matrix_set_color(i, r, g, b);
+    }
+}
+
+bool rgb_matrix_indicators_user(void) {
+    if (is_recording && is_recording_lights_on) {
+        uint16_t t = timer_read() % 1000;
+        float phase = (float)t / 1000.0f;
+        float brightness = (sinf(phase * 2 * M_PI) + 1.0f) / 2.0f;
+        uint8_t val = (uint8_t)(brightness * 255);
+
+        set_underglow(val, 0, 0);
+    } else if (!is_recording && is_recording_lights_on) {
+        set_underglow(0, 0, 0);
+        is_recording_lights_on = false;
+    }
+    return false;
+}
+
+bool dynamic_macro_record_start_user(int8_t direction) {
+    is_recording = true;
+    is_recording_lights_on = true;
+
+    if (is_keyboard_master()) {
+        master_to_slave_t m2s = { .is_recording = true };
+        transaction_rpc_send(USER_SYNC_A, sizeof(m2s), &m2s);
+    }
+
+    return false;
+}
+
+bool dynamic_macro_record_end_user(int8_t direction) {
+    is_recording = false;
+
+    if (is_keyboard_master()) {
+        master_to_slave_t m2s = { .is_recording = false };
+        transaction_rpc_send(USER_SYNC_A, sizeof(m2s), &m2s);
+    }
+
+    return false;
+}
+
+void user_sync_a_slave_handler(uint8_t in_buflen, const void* in_data, uint8_t out_buflen, void* out_data) {
+    if (in_buflen == sizeof(master_to_slave_t)) {
+        const master_to_slave_t *m2s = (const master_to_slave_t*)in_data;
+
+        if (!is_recording && m2s->is_recording) {
+            is_recording = true;
+            is_recording_lights_on = true;
+        } else if (is_recording && !(m2s->is_recording)) {
+            is_recording = false;
+        }
+    }
+}
+
+void keyboard_post_init_user(void) {
+    transaction_register_rpc(USER_SYNC_A, user_sync_a_slave_handler);
 }
