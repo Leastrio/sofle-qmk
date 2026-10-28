@@ -6,12 +6,14 @@
 
 typedef struct _master_to_slave_t {
     bool is_recording;
+    bool oled_suspend;
+    bool oled_sleep;
 } master_to_slave_t;
 
 enum sofle_layers {
     /* _M_XYZ = Mac Os, _W_XYZ = Win/Linux */
-    _QWERTY,
     _COLEMAK,
+    _QWERTY,
     _LOWER,
     _RAISE,
     _ADJUST,
@@ -19,6 +21,90 @@ enum sofle_layers {
 
 #define KC_QWERTY PDF(_QWERTY)
 #define KC_COLEMAK PDF(_COLEMAK)
+#define OLED_SCREEN_TIMEOUT 60000
+
+enum custom_keycodes {
+    AUTOCLK = SAFE_RANGE,
+};
+
+static const uint16_t autoclick_speeds[] = {1, 2, 5, 10, 15, 20, 25, 33, 50, 75, 100, 150, 200, 250, 500};
+#define AUTOCLICK_SPEED_COUNT (sizeof(autoclick_speeds) / sizeof(autoclick_speeds[0]))
+#define AUTOCLICK_DEFAULT_SPEED 3
+#define AUTOCLICK_MAX_HOLD_MS 15
+
+static deferred_token autoclick_token = INVALID_DEFERRED_TOKEN;
+static uint8_t autoclick_speed = AUTOCLICK_DEFAULT_SPEED;
+static bool autoclick_speed_changed = false;
+static bool autoclick_pressed = false;
+
+static bool autoclick_is_on(void) {
+    return autoclick_token != INVALID_DEFERRED_TOKEN;
+}
+
+static void autoclick_load_speed(void) {
+    uint32_t saved = eeconfig_read_user();
+    autoclick_speed = (saved >= 1 && saved <= AUTOCLICK_SPEED_COUNT) ? saved - 1 : AUTOCLICK_DEFAULT_SPEED;
+}
+
+static void autoclick_save_speed(void) {
+    eeconfig_update_user(autoclick_speed + 1);
+}
+
+static uint32_t autoclick_callback(uint32_t trigger_time, void *cb_arg) {
+    uint16_t interval = autoclick_speeds[autoclick_speed];
+    uint16_t hold = interval / 2;
+    if (hold > AUTOCLICK_MAX_HOLD_MS) hold = AUTOCLICK_MAX_HOLD_MS;
+    if (hold < 1) hold = 1;
+
+    if (!autoclick_pressed) {
+        register_code(MS_BTN1);
+        autoclick_pressed = true;
+        return hold;
+    }
+    unregister_code(MS_BTN1);
+    autoclick_pressed = false;
+    return interval > hold ? interval - hold : 1;
+    
+}
+
+static void autoclick_stop(void) {
+    if (autoclick_is_on()) {
+        cancel_deferred_exec(autoclick_token);
+        autoclick_token = INVALID_DEFERRED_TOKEN;
+    }
+    if (autoclick_pressed) {
+        unregister_code(MS_BTN1);
+        autoclick_pressed = false;
+    }
+    if (autoclick_speed_changed) {
+        autoclick_save_speed();
+        autoclick_speed_changed = false;
+    }
+}
+
+static void autoclick_change_speed(bool clockwise) {
+    if (clockwise && autoclick_speed > 0) {
+        autoclick_speed--;
+        autoclick_speed_changed = true;
+    } else if (!clockwise && autoclick_speed < AUTOCLICK_SPEED_COUNT - 1) {
+        autoclick_speed++;
+        autoclick_speed_changed = true;
+    }
+}
+
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    if (keycode == AUTOCLK) {
+        if (record->event.pressed) {
+            if (autoclick_is_on()) {
+                autoclick_stop();
+            } else {
+                autoclick_token = defer_exec(1, autoclick_callback, NULL);
+            }
+        }
+        return false;
+    }
+    return true;
+}
 
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 /*
@@ -29,20 +115,20 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * | Tab  |   Q  |   W  |   E  |   R  |   T  |                    |   Y  |   U  |   I  |   O  |   P  | Bspc |
  * |------+------+------+------+------+------|                    |------+------+------+------+------+------|
  * |LShift|   A  |   S  |   D  |   F  |   G  |-------.    ,-------|   H  |   J  |   K  |   L  |   ;  |  '   |
- * |------+------+------+------+------+------| MPLAY |    |       |------+------+------+------+------+------|
+ * |------+------+------+------+------+------| MPLAY |    | CPWD  |------+------+------+------+------+------|
  * | LCTR |   Z  |   X  |   C  |   V  |   B  |-------|    |-------|   N  |   M  |   ,  |   .  |   /  |RShift|
  * `-----------------------------------------/       /     \      \-----------------------------------------'
- *            |      | LAlt | LGUI |LOWER | /Space  /       \Enter \  |RAISE | RGUI | RAlt | RCTL |
+ *            |      | LAlt | LGUI |LOWER | /Space  /       \Enter \  |RAISE | RGUI | RAlt |      |
  *            |      |      |      |      |/       /         \      \ |      |      |      |      |
  *            `----------------------------------'           '------''---------------------------'
  */
 
 [_QWERTY] = LAYOUT(
-  KC_GRAVE,   KC_1,   KC_2,    KC_3,    KC_4,    KC_5,                     KC_6,    KC_7,    KC_8,    KC_9,    KC_0,  KC_GRAVE,
-  KC_TAB,   KC_Q,   KC_W,    KC_E,    KC_R,    KC_T,                     KC_Y,    KC_U,    KC_I,    KC_O,    KC_P,  KC_BSPC,
-  KC_LSFT,   KC_A,   KC_S,    KC_D,    KC_F,    KC_G,                     KC_H,    KC_J,    KC_K,    KC_L, KC_SCLN,  KC_QUOT,
-  KC_LCTL,  KC_Z,   KC_X,    KC_C,    KC_V,    KC_B, KC_MPLY,     CW_TOGG,KC_N,    KC_M, KC_COMM,  KC_DOT, KC_SLSH,  KC_RSFT,
-                 XXXXXXX,KC_LALT,KC_LGUI,TL_LOWR, KC_SPC,      KC_ENT,  TL_UPPR, KC_RGUI, KC_RALT, KC_RCTL
+  KC_ESC, KC_1, KC_2, KC_3, KC_4, KC_5,                     KC_6,    KC_7,    KC_8,    KC_9,    KC_0,  KC_GRAVE,
+  KC_TAB,  KC_Q, KC_W, KC_E, KC_R, KC_T,                     KC_Y,    KC_U,    KC_I,    KC_O,    KC_P,  KC_BSPC,
+  KC_LSFT, KC_A, KC_S, KC_D, KC_F, KC_G,                     KC_H,    KC_J,    KC_K,    KC_L, KC_SCLN,  KC_QUOT,
+  KC_LCTL, KC_Z, KC_X, KC_C, KC_V, KC_B, KC_MPLY,    CW_TOGG,KC_N,    KC_M, KC_COMM,  KC_DOT, KC_SLSH,  KC_RSFT,
+                 XXXXXXX,KC_LALT,KC_LGUI,  TL_LOWR, KC_SPC,      KC_ENT,  TL_UPPR, KC_BSPC, KC_RALT, KC_RCTL
 ),
 /*
  * COLEMAK
@@ -52,20 +138,20 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * | Tab  |   Q  |   W  |   F  |   P  |   B  |                    |   J  |   L  |   U  |   Y  |   ;  | Bspc |
  * |------+------+------+------+------+------|                    |------+------+------+------+------+------|
  * |LShift|   A  |   R  |   S  |   T  |   G  |-------.    ,-------|   M  |   N  |   E  |   I  |   O  |  '   |
- * |------+------+------+------+------+------| MPLAY |    |       |------+------+------+------+------+------|
+ * |------+------+------+------+------+------| MPLAY |    | CPWD  |------+------+------+------+------+------|
  * | LCTR |   Z  |   X  |   C  |   D  |   V  |-------|    |-------|   K  |   H  |   ,  |   .  |   /  |RShift|
  * `-----------------------------------------/       /     \      \-----------------------------------------'
- *            |      | LAlt | LGUI |LOWER | /Space  /       \Enter \  |RAISE | RGUI | RAlt | RCTL |
+ *            |      | LAlt | LGUI |LOWER | /Space  /       \Enter \  |RAISE | RGUI | RAlt |      |
  *            |      |      |      |      |/       /         \      \ |      |      |      |      |
  *            `----------------------------------'           '------''---------------------------'
  */
 
 [_COLEMAK] = LAYOUT(
-  KC_GRAVE,   KC_1,   KC_2,    KC_3,    KC_4,    KC_5,                      KC_6,    KC_7,    KC_8,    KC_9,    KC_0,  KC_GRAVE,
+  KC_ESC,   KC_1,   KC_2,    KC_3,    KC_4,    KC_5,                      KC_6,    KC_7,    KC_8,    KC_9,    KC_0,  KC_GRAVE,
   KC_TAB,   KC_Q,   KC_W,    KC_F,    KC_P,    KC_B,                      KC_J,    KC_L,    KC_U,    KC_Y, KC_SCLN,  KC_BSPC,
   KC_LSFT,   KC_A,   KC_R,    KC_S,    KC_T,    KC_G,                      KC_M,    KC_N,    KC_E,    KC_I,    KC_O,  KC_QUOT,
   KC_LCTL,  KC_Z,   KC_X,    KC_C,    KC_D,    KC_V, KC_MPLY,      CW_TOGG,KC_K,    KC_H, KC_COMM,  KC_DOT, KC_SLSH,  KC_RSFT,
-                 XXXXXXX,KC_LALT,KC_LGUI,TL_LOWR, KC_SPC,        KC_ENT,  TL_UPPR, KC_RGUI, KC_RALT, KC_RCTL
+                 XXXXXXX,KC_LALT,KC_LGUI,TL_LOWR, KC_SPC,        KC_ENT,  TL_UPPR, KC_BSPC, KC_RALT, KC_RCTL
 ),
 /* LOWER
  * ,-----------------------------------------.                    ,-----------------------------------------.
@@ -74,38 +160,38 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * | TAB  |   1  |   2  |   3  |   4  |   5  |                    |   6  |   7  |   8  |   9  |   0  | F12  |
  * |------+------+------+------+------+------|                    |------+------+------+------+------+------|
  * |LSHIFT|   !  |   @  |   #  |   $  |   %  |-------.    ,-------|   ^  |   &  |   *  |   (  |   )  |   |  |
- * |------+------+------+------+------+------| MPLAY |    |       |------+------+------+------+------+------|
+ * |------+------+------+------+------+------| MPLAY |    | CPWD  |------+------+------+------+------+------|
  * | LCTR |   =  |   -  |   +  |   {  |   }  |-------|    |-------|   [  |   ]  |   ;  |   :  |   \  |RShift|
  * `-----------------------------------------/       /     \      \-----------------------------------------'
- *            |      | LAlt | LGUI |LOWER | /Space  /       \Enter \  |RAISE | RGUI | RAlt | RCTL |
+ *            |      | LAlt | LGUI |LOWER | /Space  /       \Enter \  |RAISE | RGUI | RAlt |      |
  *            |      |      |      |      |/       /         \      \ |      |      |      |      |
  *            `----------------------------------'           '------''---------------------------'
  */
 [_LOWER] = LAYOUT(
-  KC_ESC,  KC_F1,   KC_F2,   KC_F3,   KC_F4,   KC_F5,                       KC_F6,   KC_F7,   KC_F8,   KC_F9,  KC_F10,  KC_F11,
+  _______, KC_F1,   KC_F2,   KC_F3,   KC_F4,   KC_F5,                       KC_F6,   KC_F7,   KC_F8,   KC_F9,  KC_F10,  KC_F11,
   _______, KC_1,    KC_2,    KC_3,    KC_4,    KC_5,                       KC_6,    KC_7,    KC_8,    KC_9,    KC_0,  KC_F12,
-  _______, KC_EXLM,   KC_AT, KC_HASH,  KC_DLR, KC_PERC,                       KC_CIRC, KC_AMPR, KC_ASTR, KC_LPRN, KC_RPRN, KC_PIPE,
-  _______, KC_EQL, KC_MINS, KC_PLUS, KC_LCBR, KC_RCBR, _______,       _______, KC_LBRC, KC_RBRC, KC_SCLN, KC_COLN, KC_BSLS, _______,
+  _______, KC_EXLM, KC_AT,   KC_HASH, KC_DLR,  KC_PERC,                       KC_CIRC, KC_AMPR, KC_ASTR, KC_LPRN, KC_RPRN, KC_PIPE,
+  _______, KC_EQL,  KC_MINS, KC_PLUS, KC_LCBR, KC_RCBR, _______,       _______, KC_LBRC, KC_RBRC, KC_SCLN, KC_COLN, KC_BSLS, _______,
                        _______, _______, _______, _______, _______,       _______, _______, _______, _______, _______
 ),
 /* RAISE
- * ,----------------------------------------.                    ,-----------------------------------------.
+ * ,-----------------------------------------.                    ,-----------------------------------------.
  * | ESC  |      |      |      |      |      |                    |DMREC |DMSTOP|DMPLY |      |      |      |
  * |------+------+------+------+------+------|                    |------+------+------+------+------+------|
  * | TAB  | Ins  | Pscr | Menu |      |      |                    | PgUp |      |  Up  |      | DLine| Bspc |
  * |------+------+------+------+------+------|                    |------+------+------+------+------+------|
- * |LSHIFT| LAt  | LCtl |LShift|      | Caps |-------.    ,-------| PgDn | Left | Down | Rigth|  Del | Bspc |
- * |------+------+------+------+------+------| MPLAY |    |       |------+------+------+------+------+------|
+ * |LSHIFT| LAt  | LCtl |LShift|      | Caps |-------.    ,-------| PgDn | Left | Down | Rigth|  Del |      |
+ * |------+------+------+------+------+------| MPLAY |    | CPWD  |------+------+------+------+------+------|
  * | LCTR | Undo |  Cut | Copy | Paste|      |-------|    |-------|      |      |      |      |      |RShift|
  * `-----------------------------------------/       /     \      \-----------------------------------------'
- *            |      | LAlt | LGUI |LOWER | /Space  /       \Enter \  |RAISE | RGUI | RAlt | RCTL |
+ *            |      | LAlt | LGUI |LOWER | /Space  /       \Enter \  |RAISE | RGUI | RAlt |      |
  *            |      |      |      |      |/       /         \      \ |      |      |      |      |
  *            `----------------------------------'           '------''---------------------------'
  */
 [_RAISE] = LAYOUT(
   _______, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,                          DM_REC1, DM_RSTP, DM_PLY1, XXXXXXX,    XXXXXXX, XXXXXXX,
   _______,  KC_INS, KC_PSCR,  KC_APP, XXXXXXX, XXXXXXX,                          KC_PGUP, XXXXXXX,   KC_UP, XXXXXXX, C(KC_BSPC), KC_BSPC,
-  _______, KC_LALT, KC_LCTL, KC_LSFT, XXXXXXX, KC_CAPS,                          KC_PGDN, KC_LEFT, KC_DOWN, KC_RGHT,     KC_DEL, KC_BSPC,
+  _______, KC_LALT, KC_LCTL, KC_LSFT, XXXXXXX, KC_CAPS,                          KC_PGDN, KC_LEFT, KC_DOWN, KC_RGHT,     KC_DEL, XXXXXXX,
   _______, C(KC_Z), C(KC_X), C(KC_C), C(KC_V), XXXXXXX,  _______,       _______, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,    XXXXXXX, _______,
                          _______, _______, _______, _______, _______,       _______, _______, _______, _______, _______
 ),
@@ -113,20 +199,20 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * ,-----------------------------------------.                    ,-----------------------------------------.
  * |      |      |      |      |      |      |                    |      |      |      |      |      |      |
  * |------+------+------+------+------+------|                    |------+------+------+------+------+------|
- * |QK_BOOT|     |QWERTY|COLEMAK|     |      |                    |      |      |MXTTGL|HUEUP |SATUP |      |
+ * |QK_BOOT|     |QWERTY|COLEMAK|     |      |                    |      |      |RGBTGL| HUE+ | SAT+ |      |
  * |------+------+------+------+------+------|                    |------+------+------+------+------+------|
- * |EE_CLR|      |      |      |      |      |-------.    ,-------|      |MTXPREV|MXTNXT|HUEDN|SATDN |      |
- * |------+------+------+------+------+------|  MUTE |    |       |------+------+------+------+------+------|
- * |      |      |      |      |      |      |-------|    |-------|      |VALDON|VALUP |      |      |      |
+ * |EE_CLR|      |      |      |      |      |-------.    ,-------|      |EFFPRV|EFFNXT| HUE+ | SAT+ |      |
+ * |------+------+------+------+------+------|       |    |       |------+------+------+------+------+------|
+ * |      |      |      |      |      |      |-------|    |-------|      | BRI- | BRI+ |      |      |      |
  * `-----------------------------------------/       /     \      \-----------------------------------------'
- *            | LGUI | LAlt | LCTR |LOWER | /Enter  /       \Space \  |RAISE | RCTR | RAlt | RGUI |
+ *            | LGUI | LAlt | LCTR |LOWER | /Enter  /       \Space \  |RAISE | RCTR | RAlt |      |
  *            |      |      |      |      |/       /         \      \ |      |      |      |      |
  *            `----------------------------------'           '------''---------------------------'
  */
   [_ADJUST] = LAYOUT(
   XXXXXXX,  XXXXXXX,  XXXXXXX,   XXXXXXX , XXXXXXX, XXXXXXX,                     XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,
   QK_BOOT,  XXXXXXX,  KC_QWERTY, KC_COLEMAK,XXXXXXX,XXXXXXX,                     XXXXXXX, XXXXXXX, RM_TOGG, RM_HUEU, RM_SATU, XXXXXXX,
-  EE_CLR,  XXXXXXX,  XXXXXXX,   XXXXXXX,    XXXXXXX,  XXXXXXX,                     XXXXXXX, RM_PREV, RM_NEXT, RM_HUED, RM_SATD, XXXXXXX,
+  EE_CLR,  XXXXXXX,  XXXXXXX,   XXXXXXX,    AUTOCLK,  XXXXXXX,                     XXXXXXX, RM_PREV, RM_NEXT, RM_HUED, RM_SATD, XXXXXXX,
   XXXXXXX,  XXXXXXX,  XXXXXXX,   XXXXXXX,    XXXXXXX,  XXXXXXX, XXXXXXX,     XXXXXXX, XXXXXXX, RM_VALD, RM_VALU, XXXXXXX, XXXXXXX, XXXXXXX,
                    _______, _______, _______, _______, _______,     _______, _______, _______, _______, _______
   )
@@ -199,8 +285,45 @@ static const char PROGMEM cat_animations[4][3][4][33] = {
 
 static uint8_t animation_frame = 0;
 static uint8_t animation_type = 0;
+
 bool is_recording = false;
 bool is_recording_lights_on = false;
+
+bool oled_suspend = false;
+bool oled_sleep = false;
+
+static bool slave_sync_pending = false;
+static uint16_t slave_sync_timer = 0;
+
+static void slave_sync_try(void) {
+    if (!slave_sync_pending || !is_keyboard_master()) {
+        return;
+    }
+    master_to_slave_t m2s = {
+        .is_recording = is_recording,
+        .oled_suspend = oled_suspend,
+        .oled_sleep = oled_sleep,
+    };
+    if (transaction_rpc_send(USER_SYNC_A, sizeof(m2s), &m2s)) {
+        slave_sync_pending = false;
+    }
+    slave_sync_timer = timer_read();
+}
+
+static void slave_sync(void) {
+    slave_sync_pending = true;
+    slave_sync_try();
+}
+
+static void slave_sync_task(void) {
+    if (slave_sync_pending && timer_elapsed(slave_sync_timer) >= 100) {
+        slave_sync_try();
+    }
+}
+
+void housekeeping_task_user(void) {
+    slave_sync_task();
+}
 
 void render_pet(void) {
     for (uint8_t i = 0; i < 4; i++) {
@@ -210,6 +333,8 @@ void render_pet(void) {
 }
 
 uint32_t cat_animation_phases(uint32_t trigger_time, void *cb_arg) {
+    if (oled_suspend || oled_sleep) return 500;
+
     if (get_current_wpm() <= 10) {
         animation_frame = (animation_frame + 1) % 2;
         animation_type = 0;
@@ -263,12 +388,34 @@ static void print_status_narrow(void) {
     }
     oled_write_P(PSTR("\n\n"), false);
     oled_write_ln_P(PSTR("CPSWD"), is_caps_word_on());
+    oled_write_ln_P(PSTR("CLICK"), autoclick_is_on());
+    oled_write(get_u16_str(autoclick_speeds[autoclick_speed], ' ') + 2, autoclick_is_on());
+    oled_write_P(PSTR("ms"), autoclick_is_on());
 }
 
 bool oled_task_user(void) {
+    if (oled_suspend) {
+        oled_off();
+        return false;
+    }
+
     if (is_keyboard_master()) {
-        print_status_narrow();
-    } else {
+        bool idle = last_input_activity_elapsed() > OLED_SCREEN_TIMEOUT;
+
+        if (idle && !oled_sleep) {
+            oled_sleep = true;
+            oled_off();
+            slave_sync();
+        } else if (!idle && oled_sleep) {
+            oled_sleep = false;
+            oled_on();
+            slave_sync();
+        }
+
+        if (!oled_sleep) {
+            print_status_narrow();
+        }
+    } else if (!oled_sleep) {
         render_pet();
         oled_set_cursor(0, 5);
         oled_write_P(PSTR("WPM: "), false);
@@ -283,22 +430,35 @@ oled_rotation_t oled_init_user(oled_rotation_t rotation) {
 }
 
 void suspend_power_down_user(void) {
-    oled_off();
+    autoclick_stop();
+    if (!oled_suspend) {
+        oled_suspend = true;
+        oled_off();
+        slave_sync();
+    }
+    slave_sync_task();
+}
+
+void suspend_wakeup_init_user(void) {
+    oled_suspend = false;
+    oled_on();
+    slave_sync();
 }
 
 bool encoder_update_user(uint8_t index, bool clockwise) {
+    if (autoclick_is_on()) {
+        if (index == 0) {
+            tap_code(clockwise ? KC_MPRV : KC_MNXT);
+        } else {
+            autoclick_change_speed(clockwise);
+        }
+        return false;
+    }
+
     if (index == 0) {
-        if (clockwise) {
-            tap_code(KC_MPRV);
-        } else {
-            tap_code(KC_MNXT);
-        }
+        tap_code(clockwise ? KC_MPRV : KC_MNXT);
     } else if (index == 1) {
-        if (clockwise) {
-            tap_code(KC_PGDN);
-        } else {
-            tap_code(KC_PGUP);
-        }
+        tap_code(clockwise ? KC_PGDN : KC_PGUP);
     }
     return false;
 }
@@ -331,23 +491,13 @@ bool rgb_matrix_indicators_user(void) {
 bool dynamic_macro_record_start_user(int8_t direction) {
     is_recording = true;
     is_recording_lights_on = true;
-
-    if (is_keyboard_master()) {
-        master_to_slave_t m2s = { .is_recording = true };
-        transaction_rpc_send(USER_SYNC_A, sizeof(m2s), &m2s);
-    }
-
+    slave_sync();
     return false;
 }
 
 bool dynamic_macro_record_end_user(int8_t direction) {
     is_recording = false;
-
-    if (is_keyboard_master()) {
-        master_to_slave_t m2s = { .is_recording = false };
-        transaction_rpc_send(USER_SYNC_A, sizeof(m2s), &m2s);
-    }
-
+    slave_sync();
     return false;
 }
 
@@ -356,14 +506,22 @@ void user_sync_a_slave_handler(uint8_t in_buflen, const void* in_data, uint8_t o
         const master_to_slave_t *m2s = (const master_to_slave_t*)in_data;
 
         if (!is_recording && m2s->is_recording) {
-            is_recording = true;
             is_recording_lights_on = true;
-        } else if (is_recording && !(m2s->is_recording)) {
-            is_recording = false;
         }
+
+        if (m2s->oled_suspend || m2s->oled_sleep) {
+            oled_off();
+        } else {
+            oled_on();
+        }
+
+        is_recording = m2s->is_recording;
+        oled_suspend = m2s->oled_suspend;
+        oled_sleep = m2s->oled_sleep;
     }
 }
 
 void keyboard_post_init_user(void) {
+    autoclick_load_speed();
     transaction_register_rpc(USER_SYNC_A, user_sync_a_slave_handler);
 }
