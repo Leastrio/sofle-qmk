@@ -3,6 +3,7 @@
 #include QMK_KEYBOARD_H
 #include <math.h>
 #include <transactions.h>
+#include "raw_hid.h"
 
 typedef struct _master_to_slave_t {
     bool is_recording;
@@ -22,6 +23,7 @@ enum sofle_layers {
 #define KC_QWERTY PDF(_QWERTY)
 #define KC_COLEMAK PDF(_COLEMAK)
 #define OLED_SCREEN_TIMEOUT 60000
+#define WISTERIA_ID 0x57
 
 enum custom_keycodes {
     AUTOCLK = SAFE_RANGE,
@@ -524,4 +526,25 @@ void user_sync_a_slave_handler(uint8_t in_buflen, const void* in_data, uint8_t o
 void keyboard_post_init_user(void) {
     autoclick_load_speed();
     transaction_register_rpc(USER_SYNC_A, user_sync_a_slave_handler);
+}
+
+static void wisteria_send(layer_state_t base, layer_state_t layers) {
+    if (!is_keyboard_master()) return;
+
+    uint8_t report[32] = {WISTERIA_ID, get_highest_layer(base), get_highest_layer(layers | base)};
+    raw_hid_send(report, sizeof(report));
+}
+
+layer_state_t default_layer_state_set_user(layer_state_t state) {
+    wisteria_send(state, layer_state);
+    return state;
+}
+
+layer_state_t layer_state_set_user(layer_state_t state) {
+    wisteria_send(default_layer_state, state);
+    return state;
+}
+
+void raw_hid_receive(uint8_t *data, uint8_t length) {
+    if (data[0] == WISTERIA_ID) wisteria_send(default_layer_state, layer_state);
 }
