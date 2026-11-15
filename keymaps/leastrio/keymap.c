@@ -24,6 +24,10 @@ enum sofle_layers {
 #define KC_COLEMAK PDF(_COLEMAK)
 #define OLED_SCREEN_TIMEOUT 60000
 #define WISTERIA_ID 0x57
+#define WISTERIA_TIMEOUT 3000
+
+static bool     wisteria_active = false;
+static uint32_t wisteria_heard  = 0;
 
 enum custom_keycodes {
     AUTOCLK = SAFE_RANGE,
@@ -528,23 +532,31 @@ void keyboard_post_init_user(void) {
     transaction_register_rpc(USER_SYNC_A, user_sync_a_slave_handler);
 }
 
-static void wisteria_send(layer_state_t base, layer_state_t layers) {
-    if (!is_keyboard_master()) return;
+static bool wisteria_listening(void) {
+    if (wisteria_active && timer_elapsed32(wisteria_heard) >= WISTERIA_TIMEOUT) {
+        wisteria_active = false;
+    }
+    return wisteria_active;
+}
 
+static void wisteria_send(layer_state_t base, layer_state_t layers) {
     uint8_t report[32] = {WISTERIA_ID, get_highest_layer(base), get_highest_layer(layers | base)};
     raw_hid_send(report, sizeof(report));
 }
 
 layer_state_t default_layer_state_set_user(layer_state_t state) {
-    wisteria_send(state, layer_state);
+    if (wisteria_listening()) wisteria_send(state, layer_state);
     return state;
 }
 
 layer_state_t layer_state_set_user(layer_state_t state) {
-    wisteria_send(default_layer_state, state);
+    if (wisteria_listening()) wisteria_send(default_layer_state, state);
     return state;
 }
 
 void raw_hid_receive(uint8_t *data, uint8_t length) {
-    if (data[0] == WISTERIA_ID) wisteria_send(default_layer_state, layer_state);
+    if (data[0] != WISTERIA_ID) return;
+    wisteria_heard = timer_read32();
+    wisteria_active = true;
+    wisteria_send(default_layer_state, layer_state);
 }
