@@ -12,5 +12,7 @@ MOUSEKEY_ENABLE = yes
 OLED_ENABLE = yes
 RAW_ENABLE = yes
 
+DEBOUNCE_TYPE = sym_eager_pk
+
 CONVERT_TO = rp2040_ce
 PIN_COMPATIBLE = promicro

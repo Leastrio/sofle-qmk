@@ -33,9 +33,9 @@ enum custom_keycodes {
     AUTOCLK = SAFE_RANGE,
 };
 
-static const uint16_t autoclick_speeds[] = {1, 2, 5, 10, 15, 20, 25, 33, 50, 75, 100, 150, 200, 250, 500};
+static const uint16_t autoclick_speeds[] = {2, 5, 10, 15, 20, 25, 33, 50, 75, 100, 150, 200, 250, 500};
 #define AUTOCLICK_SPEED_COUNT (sizeof(autoclick_speeds) / sizeof(autoclick_speeds[0]))
-#define AUTOCLICK_DEFAULT_SPEED 3
+#define AUTOCLICK_DEFAULT_SPEED 2
 #define AUTOCLICK_MAX_HOLD_MS 15
 
 static deferred_token autoclick_token = INVALID_DEFERRED_TOKEN;
@@ -70,7 +70,7 @@ static uint32_t autoclick_callback(uint32_t trigger_time, void *cb_arg) {
     unregister_code(MS_BTN1);
     autoclick_pressed = false;
     return interval > hold ? interval - hold : 1;
-    
+
 }
 
 static void autoclick_stop(void) {
@@ -134,7 +134,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
   KC_TAB,  KC_Q, KC_W, KC_E, KC_R, KC_T,                     KC_Y,    KC_U,    KC_I,    KC_O,    KC_P,  KC_BSPC,
   KC_LSFT, KC_A, KC_S, KC_D, KC_F, KC_G,                     KC_H,    KC_J,    KC_K,    KC_L, KC_SCLN,  KC_QUOT,
   KC_LCTL, KC_Z, KC_X, KC_C, KC_V, KC_B, KC_MPLY,    CW_TOGG,KC_N,    KC_M, KC_COMM,  KC_DOT, KC_SLSH,  KC_RSFT,
-                 XXXXXXX,KC_LALT,KC_LGUI,  TL_LOWR, KC_SPC,      KC_ENT,  TL_UPPR, KC_BSPC, KC_RALT, KC_RCTL
+                 LCS(KC_NO),KC_LALT,KC_LGUI,  TL_LOWR, KC_SPC,      KC_ENT,  TL_UPPR, KC_BSPC, KC_RALT, KC_RCTL
 ),
 /*
  * COLEMAK
@@ -157,7 +157,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
   KC_TAB,   KC_Q,   KC_W,    KC_F,    KC_P,    KC_B,                      KC_J,    KC_L,    KC_U,    KC_Y, KC_SCLN,  KC_BSPC,
   KC_LSFT,   KC_A,   KC_R,    KC_S,    KC_T,    KC_G,                      KC_M,    KC_N,    KC_E,    KC_I,    KC_O,  KC_QUOT,
   KC_LCTL,  KC_Z,   KC_X,    KC_C,    KC_D,    KC_V, KC_MPLY,      CW_TOGG,KC_K,    KC_H, KC_COMM,  KC_DOT, KC_SLSH,  KC_RSFT,
-                 XXXXXXX,KC_LALT,KC_LGUI,TL_LOWR, KC_SPC,        KC_ENT,  TL_UPPR, KC_BSPC, KC_RALT, KC_RCTL
+                 LCS(KC_NO),KC_LALT,KC_LGUI,TL_LOWR, KC_SPC,        KC_ENT,  TL_UPPR, KC_BSPC, KC_RALT, KC_RCTL
 ),
 /* LOWER
  * ,-----------------------------------------.                    ,-----------------------------------------.
@@ -167,7 +167,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * |------+------+------+------+------+------|                    |------+------+------+------+------+------|
  * |LSHIFT|   !  |   @  |   #  |   $  |   %  |-------.    ,-------|   ^  |   &  |   *  |   (  |   )  |   |  |
  * |------+------+------+------+------+------| MPLAY |    | CPWD  |------+------+------+------+------+------|
- * | LCTR |   =  |   -  |   +  |   {  |   }  |-------|    |-------|   [  |   ]  |   ;  |   :  |   \  |RShift|
+ * | LCTR |   =  |   -  |   +  |   {  |   }  |-------|    |-------|   [  |   ]  |   _  |   :  |   \  |RShift|
  * `-----------------------------------------/       /     \      \-----------------------------------------'
  *            |      | LAlt | LGUI |LOWER | /Space  /       \Enter \  |RAISE | RGUI | RAlt |      |
  *            |      |      |      |      |/       /         \      \ |      |      |      |      |
@@ -177,7 +177,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
   _______, KC_F1,   KC_F2,   KC_F3,   KC_F4,   KC_F5,                       KC_F6,   KC_F7,   KC_F8,   KC_F9,  KC_F10,  KC_F11,
   _______, KC_1,    KC_2,    KC_3,    KC_4,    KC_5,                       KC_6,    KC_7,    KC_8,    KC_9,    KC_0,  KC_F12,
   _______, KC_EXLM, KC_AT,   KC_HASH, KC_DLR,  KC_PERC,                       KC_CIRC, KC_AMPR, KC_ASTR, KC_LPRN, KC_RPRN, KC_PIPE,
-  _______, KC_EQL,  KC_MINS, KC_PLUS, KC_LCBR, KC_RCBR, _______,       _______, KC_LBRC, KC_RBRC, KC_SCLN, KC_COLN, KC_BSLS, _______,
+  _______, KC_EQL,  KC_MINS, KC_PLUS, KC_LCBR, KC_RCBR, _______,       _______, KC_LBRC, KC_RBRC, KC_UNDS, KC_COLN, KC_BSLS, _______,
                        _______, _______, _______, _______, _______,       _______, _______, _______, _______, _______
 ),
 /* RAISE
@@ -224,7 +224,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
   )
 };
 
-static const char PROGMEM cat_animations[4][3][4][33] = {
+static const char PROGMEM cat_animations[4][3][4][32] = {
         { // sleep frames
             {
                 { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
@@ -295,6 +295,7 @@ static uint8_t animation_type = 0;
 bool is_recording = false;
 bool is_recording_lights_on = false;
 
+static uint32_t oled_wake_time = 0;
 bool oled_suspend = false;
 bool oled_sleep = false;
 
@@ -334,7 +335,7 @@ void housekeeping_task_user(void) {
 void render_pet(void) {
     for (uint8_t i = 0; i < 4; i++) {
         oled_set_cursor(0, i);
-        oled_write_raw_P(cat_animations[animation_type][animation_frame][i], 33);
+        oled_write_raw_P(cat_animations[animation_type][animation_frame][i], 32);
     }
 }
 
@@ -406,7 +407,7 @@ bool oled_task_user(void) {
     }
 
     if (is_keyboard_master()) {
-        bool idle = last_input_activity_elapsed() > OLED_SCREEN_TIMEOUT;
+        bool idle = last_input_activity_elapsed() > OLED_SCREEN_TIMEOUT && timer_elapsed32(oled_wake_time) > OLED_SCREEN_TIMEOUT;
 
         if (idle && !oled_sleep) {
             oled_sleep = true;
@@ -447,6 +448,8 @@ void suspend_power_down_user(void) {
 
 void suspend_wakeup_init_user(void) {
     oled_suspend = false;
+    oled_sleep = false;
+    oled_wake_time = timer_read32();
     oled_on();
     slave_sync();
 }
@@ -469,12 +472,12 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
     return false;
 }
 
-void set_underglow(int8_t r, int8_t g, int8_t b) {
+void set_underglow(uint8_t r, uint8_t g, uint8_t b) {
     for (uint8_t i = 29; i <= 34; i++) {
         rgb_matrix_set_color(i, r, g, b);
     }
 
-    for (uint8_t i = 65; i <= 70; i++) {
+    for (uint8_t i = 64; i <= 69; i++) {
         rgb_matrix_set_color(i, r, g, b);
     }
 }
